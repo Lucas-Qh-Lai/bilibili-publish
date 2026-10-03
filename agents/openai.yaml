@@ -1,0 +1,2 @@
+name: bilibili-publish
+description: Publish a finished video to Bilibili (cover upload, UPOS chunked upload, add/v3, verification). Publishing only.

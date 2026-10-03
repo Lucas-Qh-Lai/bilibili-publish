@@ -1,0 +1,58 @@
+name: validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Compile Python scripts
+        run: python -m py_compile scripts/*.py
+
+      - name: Check shell syntax
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq zsh
+          zsh -n scripts/extract_bili_login_macos.sh
+
+      - name: Verify required files exist
+        run: |
+          set -e
+          for f in SKILL.md README.md README.en.md LICENSE THIRD_PARTY_NOTICES.md CHANGELOG.md VERSION; do
+            test -s "$f" || { echo "missing: $f"; exit 1; }
+          done
+          for f in scripts/publish_bilibili.py scripts/validate_assets.py scripts/verify_published.py scripts/check_dependencies.py; do
+            test -s "$f" || { echo "missing: $f"; exit 1; }
+          done
+
+      - name: Check SKILL.md front matter
+        run: |
+          python - <<'PY'
+          import pathlib, sys
+          text = pathlib.Path("SKILL.md").read_text(encoding="utf-8")
+          if not text.startswith("---\n"):
+              sys.exit("SKILL.md must start with YAML front matter")
+          fm = text.split("---", 2)[1]
+          for field in ("name:", "description:"):
+              if field not in fm:
+                  sys.exit(f"SKILL.md front matter missing {field}")
+          print("SKILL.md front matter OK")
+          PY
+
+      - name: Ensure no credentials are tracked
+        run: |
+          set -e
+          if git ls-files | grep -E '(^|/)(cookies\.json|\.env|publish_result\.json)$'; then
+            echo "credential-like file is tracked"; exit 1
+          fi
+          echo "no credential files tracked"

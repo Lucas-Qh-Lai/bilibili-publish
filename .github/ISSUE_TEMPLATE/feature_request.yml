@@ -1,0 +1,21 @@
+name: Feature request
+description: Suggest an improvement (publishing scope only)
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This project is publishing-only. Requests to add video production,
+        TTS, slides, editing, or the replace-source endpoint are out of scope.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+    validations:
+      required: true
