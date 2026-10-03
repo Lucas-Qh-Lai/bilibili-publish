@@ -73,7 +73,9 @@ python3 scripts/validate_assets.py \
 
 校验视频编码/分辨率/帧率/音轨采样率、封面尺寸、元数据长度与 UTF-8 完整性、分区 ID 类型。
 
-### 3. 取登录态（macOS）
+### 3. 取登录态
+
+**macOS（已实测）**
 
 ```bash
 ./scripts/extract_bili_login_macos.sh 9222 /tmp/cookies.json
@@ -81,7 +83,24 @@ python3 scripts/validate_assets.py \
 
 脚本会关闭并用调试端口重启「哔哩哔哩」客户端，通过 CDP 读取 Cookie，并用 `nav` 接口核对登录态。**它不读浏览器 Cookie，也不解密客户端数据库。**
 
-非 macOS 或已有 Cookie 时，直接提供 `cookies.json`（需含 `SESSDATA` 与 `bili_jct`）。
+**Windows（⚠️ 未经实机测试，仅供参考）**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\extract_bili_login_windows.ps1
+```
+
+自动定位 `bilibili.exe`（可用 `-ExePath` 指定），关闭后以调试端口重启，
+再走同样的 CDP 提取。**这条路径没有在 Windows 上跑过**，步骤与排错见
+`references/windows-cookies.md`。
+
+**其他平台 / 已有 Cookie**
+
+直接提供 `cookies.json`（需含 `SESSDATA` 与 `bili_jct`）。这个 JSON 在任何
+平台都能用，取法不影响后续上传逻辑。
+
+> 为什么不用客户端数据库：B 站客户端的 Cookie 存在 SQLite（`Network\Cookies`，
+> v18），值是 App-Bound 加密的，DPAPI 解不开。所以无论 macOS 还是 Windows，
+> 都只能走 CDP。
 
 ### 4. 发布
 
@@ -149,6 +168,7 @@ rm -f /tmp/cookies.json
 
 - `scripts/check_dependencies.py` — 依赖预检
 - `scripts/extract_bili_login_macos.sh` — macOS CDP 一键取登录态
+- `scripts/extract_bili_login_windows.ps1` — Windows CDP 一键取登录态（未测试）
 - `scripts/extract_bili_cookies.py` — CDP 提取实现
 - `scripts/validate_assets.py` — 发布前素材校验
 - `scripts/publish_bilibili.py` — 投稿主脚本（单/双封面）
@@ -157,6 +177,7 @@ rm -f /tmp/cookies.json
 - `references/bilibili-upload-api.md` — 投稿接口文档
 - `references/publish-config.md` — 配置字段与分区 ID
 - `references/publishing-errors.md` — 发布向错误档案
+- `references/windows-cookies.md` — Windows 取 Cookie 说明（未测试）
 
 ## 致谢
 

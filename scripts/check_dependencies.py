@@ -42,13 +42,22 @@ def main() -> int:
         if exe == "ffprobe" and not path:
             failures.append("ffprobe")
 
+    import os
+
     if sys.platform == "darwin":
         app = "/Applications/哔哩哔哩.app"
-        import os
         ok = os.path.isdir(app)
         print(f"[{'ok' if ok else '缺'}] 哔哩哔哩客户端（CDP 取登录态用）")
+        print("[info] 取登录态: ./scripts/extract_bili_login_macos.sh")
+    elif sys.platform == "win32":
+        # The Windows launcher auto-detects the client; we cannot verify it
+        # from here without launching it, so just report that support exists.
+        print("[info] Windows: 自动检测；若失败请用 -ExePath 指定 bilibili.exe")
+        print("[info] 取登录态: powershell -ExecutionPolicy Bypass "
+              "-File .\\scripts\\extract_bili_login_windows.ps1")
+        print("[warn] Windows 脚本未经实机测试，仅供参考；详见 references/windows-cookies.md")
     else:
-        print(f"[info] 当前平台 {sys.platform}：自动取登录态仅支持 macOS，请提供 cookies.json")
+        print(f"[info] 当前平台 {sys.platform}：没有一键取登录态脚本，请提供 cookies.json")
 
     print()
     if failures:

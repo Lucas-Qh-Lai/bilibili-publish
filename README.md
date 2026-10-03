@@ -15,7 +15,7 @@
 
 | 环节 | 说明 |
 |---|---|
-| 取登录态 | 通过 CDP 从已登录的 macOS 哔哩哔哩客户端读取 Cookie，不解密本地数据库 |
+| 取登录态 | 通过 CDP 从已登录的哔哩哔哩客户端读取 Cookie，不解密本地数据库。macOS 已实测；Windows 脚本提供但**未经测试** |
 | 上传封面 | 16:9 必填，4:3 可选，两张独立上传 |
 | 上传视频 | UPOS 预上传 → 开启分片会话 → 逐片上传（失败重试 4 次）→ 封口 |
 | 投稿 | 调用 `add/v3` 建立稿件，支持双封面 |
@@ -53,7 +53,7 @@
 ## 环境要求
 
 - **必需**：Python 3.10+、`requests`、`ffprobe`
-- **取登录态（macOS）**：哔哩哔哩桌面客户端、`websockets`
+- **取登录态**：哔哩哔哩桌面客户端、`websockets`（macOS 已实测；Windows 未测试）
 - **封面尺寸校验**：`Pillow`
 - 账号需完成手机绑定/实名，否则无法投稿
 
@@ -116,13 +116,27 @@ python3 scripts/validate_assets.py \
   [--cover43 cover4x3.png]
 ```
 
-### 3. 取登录态（macOS）
+### 3. 取登录态
+
+**macOS（已实测）**
 
 ```bash
 ./scripts/extract_bili_login_macos.sh 9222 /tmp/cookies.json
 ```
 
 脚本会短暂重启客户端、通过 CDP 读取 Cookie，并用 `nav` 接口核对登录状态。
+
+**Windows（⚠️ 未经实机测试，仅供参考）**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\extract_bili_login_windows.ps1
+```
+
+自动定位 `bilibili.exe`（可 `-ExePath` 指定），关闭后以调试端口重启，再走同样的
+CDP 提取。步骤与排错见 [`references/windows-cookies.md`](references/windows-cookies.md)。
+
+**其他平台**：直接提供 `cookies.json`（需含 `SESSDATA` 与 `bili_jct`）即可，
+取法不影响上传逻辑。
 
 ### 4. 投稿
 
@@ -172,6 +186,7 @@ bilibili-publish/
 ├── scripts/
 │   ├── check_dependencies.py
 │   ├── extract_bili_login_macos.sh
+│   ├── extract_bili_login_windows.ps1
 │   ├── extract_bili_cookies.py
 │   ├── validate_assets.py
 │   ├── publish_bilibili.py
@@ -180,7 +195,8 @@ bilibili-publish/
 └── references/
     ├── bilibili-upload-api.md
     ├── publish-config.md
-    └── publishing-errors.md
+    ├── publishing-errors.md
+    └── windows-cookies.md
 ```
 
 ## 许可

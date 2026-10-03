@@ -25,6 +25,19 @@ jobs:
           sudo apt-get install -y -qq zsh
           zsh -n scripts/extract_bili_login_macos.sh
 
+      - name: Check PowerShell syntax
+        shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            "$PWD/scripts/extract_bili_login_windows.ps1", [ref]$null, [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            exit 1
+          }
+          Write-Host "extract_bili_login_windows.ps1 parses OK"
+
       - name: Verify required files exist
         run: |
           set -e
@@ -32,6 +45,9 @@ jobs:
             test -s "$f" || { echo "missing: $f"; exit 1; }
           done
           for f in scripts/publish_bilibili.py scripts/validate_assets.py scripts/verify_published.py scripts/check_dependencies.py; do
+            test -s "$f" || { echo "missing: $f"; exit 1; }
+          done
+          for f in scripts/extract_bili_login_macos.sh scripts/extract_bili_login_windows.ps1; do
             test -s "$f" || { echo "missing: $f"; exit 1; }
           done
 

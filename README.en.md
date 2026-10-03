@@ -16,7 +16,7 @@ Codex skill.
 
 | Step | Detail |
 |---|---|
-| Credentials | Reads cookies from the logged-in macOS Bilibili client over CDP; no database decryption |
+| Credentials | Reads cookies from the logged-in Bilibili client over CDP; no database decryption. macOS is tested; the Windows script is provided **untested** |
 | Covers | Uploads the 16:9 cover (required) and 4:3 cover (optional) separately |
 | Video | UPOS pre-upload → open multipart session → chunked upload (4 retries) → finalize |
 | Submit | Calls `add/v3`, supporting dual covers |
@@ -61,7 +61,7 @@ attribution or usage.
 ## Requirements
 
 - **Required**: Python 3.10+, `requests`, `ffprobe`
-- **Credential extraction (macOS)**: Bilibili desktop client, `websockets`
+- **Credential extraction**: Bilibili desktop client, `websockets` (macOS tested; Windows untested)
 - **Cover size checks**: `Pillow`
 - The account must have completed phone binding / real-name verification
 
@@ -125,7 +125,9 @@ python3 scripts/validate_assets.py \
   [--cover43 cover4x3.png]
 ```
 
-### 3. Get credentials (macOS)
+### 3. Get credentials
+
+**macOS (tested)**
 
 ```bash
 ./scripts/extract_bili_login_macos.sh 9222 /tmp/cookies.json
@@ -133,6 +135,19 @@ python3 scripts/validate_assets.py \
 
 The script briefly restarts the client, reads cookies over CDP, and verifies the
 session against the `nav` endpoint.
+
+**Windows (⚠️ UNTESTED, for reference only)**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\extract_bili_login_windows.ps1
+```
+
+Auto-detects `bilibili.exe` (or pass `-ExePath`), restarts it with a debugging
+port, then runs the same CDP extraction. See
+[`references/windows-cookies.md`](references/windows-cookies.md).
+
+**Other platforms**: supply a `cookies.json` containing `SESSDATA` and
+`bili_jct`. How you obtained it does not affect the upload logic.
 
 ### 4. Publish
 
