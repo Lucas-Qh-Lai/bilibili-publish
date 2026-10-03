@@ -1,6 +1,6 @@
 ---
 name: bilibili-publish
-description: Publish a finished video to Bilibili (B站) on macOS through the web upload API. Use when the user wants to upload / 投稿 / 发布 an already-rendered video — extract the logged-in cookies from the native Bilibili client via CDP, upload the cover (16:9 and optional 4:3), preupload, chunked UPOS upload, finalize, submit through add/v3, and verify the public result. Publishing only: it does not write scripts, synthesize TTS, generate slides, or edit video. Never uses the replace-source (换源) endpoint.
+description: Publish a finished video to Bilibili (B站) on macOS through the web upload API. Use when the user wants to upload / 投稿 / 发布 an already-rendered video — extract the logged-in cookies from the native Bilibili client via CDP, upload the cover (16:9 and optional 4:3), preupload, chunked UPOS upload, finalize, submit through add/v3, and verify the public result. Publishing only — it does not write scripts, synthesize TTS, generate slides, or edit video. Never uses the replace-source (换源) endpoint.
 ---
 
 # Bilibili Publish（仅发布）
