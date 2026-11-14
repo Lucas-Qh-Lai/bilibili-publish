@@ -22,6 +22,8 @@ description: Publish a finished video to Bilibili (B站) on macOS through the we
 3. **提交前先校验 UTF-8。** 中文标题/简介/标签一旦变成 `?` 或 U+FFFD，B 站会静默丢标签或显示乱码。
 4. **发布前必须过素材校验**（`validate_assets.py`）。跳过校验需要用户明确同意。
 5. **标题 ≤80 字、简介 ≤2000 字、标签 ≤10 个。** 封面 16:9 用 1920×1080，4:3 用 1440×1080。
+6. **不要为了迁就平台重新编码成片。** H.264 / HEVC / AV1 都能投稿，平台会自己转码；
+   提前转码只会多一次有损。直接传原文件。规格取舍见 `references/video-specs.md`。
 
 ## 前置依赖
 
@@ -40,7 +42,7 @@ python3 scripts/check_dependencies.py
 
 | 素材 | 要求 |
 |---|---|
-| 视频 | `final.mp4`，H.264 + AAC 44.1kHz，建议 1920×1080 / 30fps |
+| 视频 | `final.mp4`，H.264 / HEVC / AV1 + AAC（44.1 或 48kHz），建议 1920×1080 / 30 或 60fps |
 | 封面 16:9 | 1920×1080 PNG，必填 |
 | 封面 4:3 | 1440×1080 PNG，可选但推荐 |
 | 元数据 | `publish.json`，见下 |
@@ -105,16 +107,21 @@ powershell -ExecutionPolicy Bypass -File .\scripts\extract_bili_login_windows.ps
 ### 4. 发布
 
 ```bash
-# 单封面
-python3 scripts/publish_bilibili.py \
-  --video final.mp4 --cover cover16x9.png \
-  --cookies /tmp/cookies.json --config publish.json
-
 # 双封面（16:9 + 4:3）
 python3 scripts/publish_bilibili.py \
   --video final.mp4 --cover cover16x9.png --cover43 cover4x3.png \
   --cookies /tmp/cookies.json --config publish.json
 ```
+
+> 投稿失败但文件已上传成功（GB 级文件重传很慢）时，用 `--submit-only`
+> 免重传重投：
+>
+> ```bash
+> python3 scripts/publish_bilibili.py \
+>   --video final.mp4 --cover cover16x9.png --cover43 cover4x3.png \
+>   --cookies /tmp/cookies.json --config publish.json \
+>   --submit-only upload_receipt.json
+> ```
 
 内部顺序：
 
@@ -123,7 +130,8 @@ python3 scripts/publish_bilibili.py \
 3. UPOS 元数据 `POST`（头 `X-Upos-Auth`）→ `upload_id`
 4. 分块 `PUT`（每块失败重试 4 次）
 5. 完成通知 `POST` → `OK=1`
-6. 提交 `POST /x/vu/web/add/v3` → `data.bvid`
+6. 预测分区 `POST /x/vupre/web/archive/types/predict` → `tid` 与 `human_type2`
+7. 提交 `POST /x/vu/web/add/v3`（带 WBI 签名）→ `data.bvid`
 
 成功后写入 `publish_result.json`（含 `aid`/`bvid`/封面 URL）。
 
@@ -154,6 +162,8 @@ rm -f /tmp/cookies.json
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
+| `add/v3` 返回 `21001 参数错误` | `videos[0].cid` 传成字符串，或缺少 WBI 签名 / 错误的 `tid` | 本 skill 已修：`cid` 转 int、`tid` 走预测接口、查询参数加 WBI 签名 |
+| 提取脚本说登录有效，投稿却 `-101 账号未登录` | CDP 里读到的是客户端重启前的旧 Cookie | 客户端已在调试端口时，再跑一次 `extract_bili_cookies.py` 取当前会话 |
 | 标签只挂上几个 / 出现 `AI??` | 元数据写入时编码损坏 | 用 UTF-8 无 BOM 重写 `publish.json`，重发 `edit/v3` 重传完整 `tag` |
 | `json.load` 报 `Unexpected UTF-8 BOM` | 文件带 BOM | 读取用 `encoding="utf-8-sig"`，写回不带 BOM |
 | 发布后 `view` 返回 `-404` | 审核中 | 等 2 分钟后重试，不要重复提交 |
@@ -162,7 +172,7 @@ rm -f /tmp/cookies.json
 | 分块上传偶发失败 | 网络抖动 | 脚本已内置 4 次重试、间隔 3 秒 |
 | 标题/简介超限 | 平台限制 | 标题 ≤80 字、简介 ≤2000 字、标签 ≤10 个 |
 
-更多见 `references/publishing-errors.md`。
+更多见 `references/publishing-errors.md` 与 `references/video-specs.md`。
 
 ## 资源
 
@@ -177,6 +187,7 @@ rm -f /tmp/cookies.json
 - `references/bilibili-upload-api.md` — 投稿接口文档
 - `references/publish-config.md` — 配置字段与分区 ID
 - `references/publishing-errors.md` — 发布向错误档案
+- `references/video-specs.md` — 成片规格、编码取舍与画质实测结论
 - `references/windows-cookies.md` — Windows 取 Cookie 说明（未测试）
 
 ## 致谢

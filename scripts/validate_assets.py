@@ -16,6 +16,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+# B 站 Web 投稿链路能接收的容器与编码。
+# H.264 是最省心的选择；HEVC/AV1 也能上传，但平台会自行转码，
+# 画质取决于平台压制策略（详见 references/video-specs.md）。
+ALLOWED_VIDEO_CODECS = {"h264", "hevc", "av1"}
+ALLOWED_VIDEO_CONTAINERS = {".mp4", ".mov", ".mkv", ".flv", ".m4v", ".avi"}
+# 平台按 44.1kHz / 48kHz 分别处理音轨，两种都能上传。
+ALLOWED_AUDIO_SAMPLE_RATES = {"44100", "48000"}
+
 
 def fail(message: str) -> None:
     raise SystemExit(f"FAIL: {message}")
@@ -83,15 +91,27 @@ def main() -> int:
         fail("视频缺少音频流")
     v, a = video_streams[0], audio_streams[0]
 
+    container = video.suffix.lower()
+    if container not in ALLOWED_VIDEO_CONTAINERS:
+        fail(
+            f"容器格式必须是 {'/'.join(sorted(ALLOWED_VIDEO_CONTAINERS))}，实际 {container or '无扩展名'}"
+        )
+
     expected_w, expected_h = (int(x) for x in args.allow_size.lower().split("x"))
     if (v.get("width"), v.get("height")) != (expected_w, expected_h):
         fail(f"视频分辨率必须是 {expected_w}x{expected_h}，实际 {v.get('width')}x{v.get('height')}")
-    if v.get("codec_name") != "h264":
-        fail(f"视频编码必须是 h264，实际 {v.get('codec_name')}")
+    video_codec = str(v.get("codec_name") or "")
+    if video_codec not in ALLOWED_VIDEO_CODECS:
+        fail(
+            f"视频编码必须是 {'/'.join(sorted(ALLOWED_VIDEO_CODECS))}，实际 {video_codec}"
+        )
     if a.get("codec_name") != "aac":
         fail(f"音频编码必须是 aac，实际 {a.get('codec_name')}")
-    if str(a.get("sample_rate")) != "44100":
-        fail(f"音频采样率必须是 44100，实际 {a.get('sample_rate')}")
+    sample_rate = str(a.get("sample_rate"))
+    if sample_rate not in ALLOWED_AUDIO_SAMPLE_RATES:
+        fail(
+            f"音频采样率必须是 {'/'.join(ALLOWED_AUDIO_SAMPLE_RATES)}，实际 {sample_rate}"
+        )
 
     num, den = (v.get("r_frame_rate") or "0/1").split("/", 1)
     fps = float(num) / float(den or 1)
@@ -131,6 +151,7 @@ def main() -> int:
     print(json.dumps({
         "video": str(video),
         "duration_seconds": round(duration, 3),
+        "container": container.lstrip("."),
         "video_spec": f"{v.get('width')}x{v.get('height')} {v.get('codec_name')} {fps:g}fps",
         "audio_spec": f"{a.get('codec_name')} {a.get('sample_rate')}Hz",
         "cover_16x9": str(cover),

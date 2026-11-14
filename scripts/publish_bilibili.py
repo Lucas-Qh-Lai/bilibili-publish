@@ -22,11 +22,13 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 import math
 import os
 import sys
 import time
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +43,16 @@ COVER_API = "https://member.bilibili.com/x/vu/web/cover/up"
 TICKET_API = "https://member.bilibili.com/preupload"
 SUBMIT_API = "https://member.bilibili.com/x/vu/web/add/v3"
 GEETEST_WARMUP = "https://member.bilibili.com/x/geetest/pre/add"
+PREDICT_API = "https://member.bilibili.com/x/vupre/web/archive/types/predict"
+NAV_API = "https://api.bilibili.com/x/web-interface/nav"
+
+# B 站 Web 投稿的 WBI 签名参数置换表（mixinKeyEncTab）。
+WBI_MIXIN_TABLE = (
+    46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49,
+    33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40,
+    61, 26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62,
+    11, 36, 20, 34, 44, 52,
+)
 
 PART_RETRIES = 4
 RETRY_BACKOFF_SECONDS = 3
@@ -58,6 +70,26 @@ class PublishError(RuntimeError):
 def emit(message: str) -> None:
     stamp = time.strftime("%H:%M:%S")
     print(f"{stamp} | {message}", flush=True)
+
+
+def wbi_mixin_key(orig: str) -> str:
+    """按 B 站的置换表从两个 key 派生 32 位 mixin key。"""
+    return "".join(orig[i] for i in WBI_MIXIN_TABLE)[:32]
+
+
+def wbi_sign(params: dict[str, Any], img_key: str, sub_key: str) -> dict[str, Any]:
+    """给查询参数加上 wts 与 w_rid，得到 WBI 签名后的参数。"""
+    signed = dict(params)
+    signed["wts"] = int(time.time())
+    cleaned = {
+        key: "".join(ch for ch in str(value) if ch not in "!'()*")
+        for key, value in signed.items()
+    }
+    query = urllib.parse.urlencode(sorted(cleaned.items()))
+    signed["w_rid"] = hashlib.md5(
+        (query + wbi_mixin_key(img_key + sub_key)).encode()
+    ).hexdigest()
+    return signed
 
 
 def _json(response: requests.Response) -> dict[str, Any]:
@@ -284,8 +316,55 @@ class BilibiliPublisher:
 
     # ---------- 投稿 ----------
 
+    # ---------- 分区与签名 ----------
+
+    def wbi_keys(self) -> tuple[str, str]:
+        """从 nav 接口取 WBI 的 img_key / sub_key。"""
+        body = _json(self.session.get(NAV_API, timeout=20))
+        data = body.get("data") or {}
+        wbi = data.get("wbi_img") or {}
+        img_url = str(wbi.get("img_url") or "")
+        sub_url = str(wbi.get("sub_url") or "")
+        if not img_url or not sub_url:
+            raise PublishError(f"nav 接口没有返回 wbi_img: {body}")
+        img_key = img_url.rsplit("/", 1)[-1].split(".")[0]
+        sub_key = sub_url.rsplit("/", 1)[-1].split(".")[0]
+        return img_key, sub_key
+
+    def predict_type(self, title: str) -> dict[str, Any]:
+        """调用「预测稿件类型」接口。
+
+        Web 端的 tid 不能直接手填：真正生效的是接口返回的第一项（固定 id）。
+        同时它的 human_type 字段给出新分区 id（human_type2）。
+        """
+        resp = self.session.post(
+            PREDICT_API,
+            params={"ts": int(time.time() * 1000), "csrf": self.csrf},
+            data={"filename": "", "title": title},
+            timeout=30,
+        )
+        body = _json(resp)
+        if body.get("code") != 0:
+            raise PublishError(f"预测稿件类型失败: {body}")
+        items = body.get("data") or []
+        if not items:
+            raise PublishError("预测稿件类型没有返回分区")
+        first = items[0]
+        human_type = first.get("human_type") or {}
+        return {
+            "tid": int(first["id"]),
+            "name": str(first.get("name") or ""),
+            "human_type2": int(human_type["id"]) if human_type.get("id") else None,
+        }
+
     def submit(self, cfg: dict[str, Any], cover_url: str, cover43_url: str,
-               stem: str, cid: str) -> dict[str, Any]:
+               stem: str, cid: int) -> dict[str, Any]:
+        """提交稿件。
+
+        cid 必须是数字：传字符串会得到 21001「参数错误」。
+        tid 走「预测稿件类型」接口拿固定 id，human_type2 取该项的 human_type.id。
+        """
+        zone = self.predict_type(str(cfg["title"]))
         payload: dict[str, Any] = {
             "videos": [{
                 "filename": stem,
@@ -297,7 +376,7 @@ class BilibiliPublisher:
             "cover43": cover43_url or "",
             "title": cfg["title"],
             "copyright": 1,
-            "tid": cfg["tid"],
+            "tid": zone["tid"],
             "tag": cfg["tag"],
             "desc_format_id": 9999,
             "desc": cfg["desc"],
@@ -316,17 +395,29 @@ class BilibiliPublisher:
             "web_os": 3,
             "csrf": self.csrf,
         }
-        if cfg.get("human_type2"):
-            payload["human_type2"] = cfg["human_type2"]
+        human_type2 = cfg.get("human_type2") or zone.get("human_type2")
+        if human_type2:
+            payload["human_type2"] = int(human_type2)
+        emit(f"分区 tid={zone['tid']}（{zone['name']}）human_type2={human_type2}")
 
         try:
             self.session.get(GEETEST_WARMUP, timeout=10)
         except requests.RequestException:
             pass
 
+        img_key, sub_key = self.wbi_keys()
+        query = wbi_sign(
+            {
+                "web_location": "333.1024",
+                "ts": int(time.time() * 1000),
+                "csrf": self.csrf,
+            },
+            img_key,
+            sub_key,
+        )
         resp = self.session.post(
             SUBMIT_API,
-            params={"ts": int(time.time() * 1000), "csrf": self.csrf},
+            params=query,
             json=payload,
             timeout=60,
         )
@@ -335,6 +426,20 @@ class BilibiliPublisher:
             raise PublishError(f"投稿失败: {body}")
         emit("稿件已创建")
         return body["data"] or {}
+
+
+def write_result(config_path: Path, data: dict[str, Any], cover_url: str,
+                 cover43_url: str, cfg: dict[str, Any]) -> None:
+    """把投稿回执写到 publish.json 同目录的 publish_result.json。"""
+    receipt_path = config_path.resolve().parent / "publish_result.json"
+    receipt_path.write_text(
+        json.dumps(
+            {"code": 0, "data": data, "cover": cover_url, "cover43": cover43_url, **cfg},
+            ensure_ascii=False, indent=2,
+        ),
+        encoding="utf-8",
+    )
+    emit(f"回执已写入 {receipt_path}")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -347,6 +452,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--cover43", help="4:3 封面 PNG（可选）")
     parser.add_argument("--cookies", required=True, help="含 SESSDATA 与 bili_jct 的 cookie JSON")
     parser.add_argument("--config", required=True, help="publish.json")
+    parser.add_argument(
+        "--submit-only",
+        metavar="RECEIPT",
+        help=(
+            "跳过上传，只用 upload_receipt.json 里的 upos 文件名与 cid 重新投稿。"
+            "投稿失败但文件已在 B 站存储时用它免去重传。"
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -365,6 +478,27 @@ def main(argv: list[str] | None = None) -> int:
     for warning in inspect_metadata(cfg):
         emit(f"注意：{warning}")
 
+    publisher = BilibiliPublisher(cookies)
+
+    if args.submit_only:
+        receipt_path = Path(args.submit_only).expanduser()
+        if not receipt_path.is_file():
+            raise PublishError(f"上传凭据不存在: {receipt_path}")
+        receipt = read_utf8_json(receipt_path, "upload_receipt")
+        cover_url = str(receipt.get("cover") or "")
+        cover43_url = str(receipt.get("cover43") or "")
+        if not cover_url:
+            cover_url = publisher.upload_cover(args.cover, "16:9 封面")
+        if args.cover43 and not cover43_url:
+            cover43_url = publisher.upload_cover(args.cover43, "4:3 封面")
+        stem = str(receipt["stem"])
+        cid = int(receipt["cid"])
+        emit(f"免重传投稿 stem={stem} cid={cid}")
+        data = publisher.submit(cfg, cover_url, cover43_url, stem, cid)
+        emit(f"投稿成功 aid={data.get('aid', '')} bvid={data.get('bvid', '')}")
+        write_result(Path(args.config), data, cover_url, cover43_url, cfg)
+        return 0
+
     video = Path(args.video)
     if not video.is_file():
         raise PublishError(f"视频不存在: {video}")
@@ -372,7 +506,6 @@ def main(argv: list[str] | None = None) -> int:
     filename = video.name
     emit(f"开始投稿 {filename}（{size} 字节）")
 
-    publisher = BilibiliPublisher(cookies)
     cover_url = publisher.upload_cover(args.cover, "16:9 封面")
     cover43_url = publisher.upload_cover(args.cover43, "4:3 封面") if args.cover43 else ""
 
@@ -384,8 +517,27 @@ def main(argv: list[str] | None = None) -> int:
     publisher.seal(upos_url, ticket["auth"], upload_id, ticket["biz_id"], filename, etags, total)
 
     stem = os.path.splitext(str(ticket["upos_uri"]).split("/")[-1])[0]
-    cid = str(ticket["biz_id"])
+    cid = int(ticket["biz_id"])
     emit(f"稿件文件名={stem} cid={cid}")
+
+    upload_receipt = Path(args.config).resolve().parent / "upload_receipt.json"
+    upload_receipt.write_text(
+        json.dumps(
+            {
+                "upos_uri": ticket["upos_uri"],
+                "filename": filename,
+                "stem": stem,
+                "cid": cid,
+                "size": size,
+                "cover": cover_url,
+                "cover43": cover43_url,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    emit(f"上传凭据已写入 {upload_receipt}（投稿失败时可用 --submit-only 免重传）")
 
     data = publisher.submit(cfg, cover_url, cover43_url, stem, cid)
     bvid = data.get("bvid", "")
@@ -394,15 +546,7 @@ def main(argv: list[str] | None = None) -> int:
     if bvid:
         emit(f"链接 https://www.bilibili.com/video/{bvid}")
 
-    receipt_path = Path(args.config).resolve().parent / "publish_result.json"
-    receipt_path.write_text(
-        json.dumps(
-            {"code": 0, "data": data, "cover": cover_url, "cover43": cover43_url, **cfg},
-            ensure_ascii=False, indent=2,
-        ),
-        encoding="utf-8",
-    )
-    emit(f"回执已写入 {receipt_path}")
+    write_result(Path(args.config), data, cover_url, cover43_url, cfg)
     emit("建议约 2 分钟后运行 verify_published.py 确认公开状态")
     return 0
 

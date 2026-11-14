@@ -11,8 +11,8 @@ Python 读取一律用 `encoding="utf-8-sig"`。
 | `desc` | str | 是 | 简介，1–2000 字；可分段时间轴、来源标注 |
 | `tag` | str | 是 | 逗号分隔，最多 10 个；超出会被静默丢弃 |
 | `dynamic` | str | 否 | 同步到粉丝动态的文案 |
-| `tid` | int | 是 | 分区 ID，见下表 |
-| `human_type2` | int | 否 | 新分区二级分类 ID，例如 `1012` |
+| `tid` | int | 否* | 分区 ID。**Web 端实际取值由「预测稿件类型」接口决定**，脚本会自动覆盖；手填仅作兜底 |
+| `human_type2` | int | 否* | 新分区二级分类 ID，例如 `1012`。同样由预测接口带出 |
 | `no_reprint` | int | 否 | `1` = 禁止转载，`0` = 允许（默认） |
 
 `publish_bilibili.py` 还接受命令行参数：
@@ -53,12 +53,26 @@ Python 读取一律用 `encoding="utf-8-sig"`。
 | 211 | 科技 → 软件应用 |
 | 230 | 科技 → 演讲·公开课 |
 
+> **注意：** `tid` 在 Web 端已无法真正手动设置，投稿时生效的是
+> `POST /x/vupre/web/archive/types/predict` 返回的第一项。本 skill 会自动调用该接口，
+> `publish.json` 里的 `tid` / `human_type2` 会被自动纠正。
+
 分区会调整，**权威来源是接口实时返回**，不要长期硬编码：
 
 ```bash
 curl -s "https://member.bilibili.com/x/vupre/web/archive/human/type2/list?t=$(date +%s000)" \
   -H "Cookie: SESSDATA=<...>"
 ```
+
+投稿真正使用的分区（`tid` + `human_type2`）来自「预测稿件类型」：
+
+```bash
+curl -s -X POST "https://member.bilibili.com/x/vupre/web/archive/types/predict" \
+  -H "Cookie: SESSDATA=<...>; bili_jct=<...>" \
+  -F "filename=" -F "title=<标题>"
+```
+
+返回 `data[0].id` 是 `tid`，`data[0].human_type.id` 是 `human_type2`。
 
 或直接查 `references/bilibili-upload-api.md` 的「获取新分区ID」「预测稿件类型」两节。
 

@@ -47,6 +47,9 @@ jobs:
           for f in scripts/publish_bilibili.py scripts/validate_assets.py scripts/verify_published.py scripts/check_dependencies.py; do
             test -s "$f" || { echo "missing: $f"; exit 1; }
           done
+          for f in references/video-specs.md docs/release-notes-v0.3.0.md; do
+            test -s "$f" || { echo "missing: $f"; exit 1; }
+          done
           for f in scripts/extract_bili_login_macos.sh scripts/extract_bili_login_windows.ps1; do
             test -s "$f" || { echo "missing: $f"; exit 1; }
           done
@@ -63,6 +66,22 @@ jobs:
               if field not in fm:
                   sys.exit(f"SKILL.md front matter missing {field}")
           print("SKILL.md front matter OK")
+          PY
+
+      - name: Smoke-test the WBI signer
+        run: |
+          python - <<'PY'
+          import sys
+          sys.path.insert(0, "scripts")
+          from publish_bilibili import wbi_mixin_key, wbi_sign
+
+          key = wbi_mixin_key("a" * 64)
+          assert len(key) == 32, key
+
+          signed = wbi_sign({"csrf": "x", "ts": 1}, "b" * 32, "c" * 32)
+          assert "w_rid" in signed and "wts" in signed, signed
+          assert len(signed["w_rid"]) == 32, signed
+          print("wbi signer OK")
           PY
 
       - name: Ensure no credentials are tracked

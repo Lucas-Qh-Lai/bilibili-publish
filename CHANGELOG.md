@@ -2,6 +2,48 @@
 
 All notable changes to this project are documented here.
 
+## [0.3.0] - 2026-11-14
+
+### Fixed
+
+- **`add/v3` returned `21001 参数错误`.** The submit payload passed
+  `videos[0].cid` as a string. `biz_id` is numeric, and the endpoint rejects the
+  string form. `cid` is now cast to `int`.
+- **`add/v3` now sends a WBI signature.** The endpoint expects
+  `web_location`, `t`, `csrf`, `wts` and `w_rid` on the query string; the old
+  `ts` + `csrf` form is rejected with `21001`. `wbi_sign()` is implemented
+  in-tree with no third-party dependency.
+- **`tid` and `human_type2` are now resolved from the API.** The Web upload
+  form ignores a hand-written `tid`; the effective value is the first entry
+  returned by `POST /x/vupre/web/archive/types/predict`. The script calls that
+  endpoint and uses its `data[0].id` plus `data[0].human_type.id`, overriding
+  whatever the config file says.
+- **Stale cookies after a client restart.** `extract_bili_login_macos.sh`
+  could report a valid login while the captured `SESSDATA` was the previous
+  session's value, which then failed with `-101 账号未登录` at publish time.
+  `extract_bili_cookies.py` can now be re-run against an already-open debug
+  port to capture the live session; the troubleshooting table documents the
+  symptom.
+
+### Added
+
+- **`--submit-only` for re-submitting without re-uploading.** After the
+  multipart upload is sealed, the file already lives in Bilibili's storage —
+  a failed submit does not need the gigabytes uploaded again. The script now
+  writes `upload_receipt.json` (upos filename, `cid`, cover URLs) and accepts
+  `--submit-only upload_receipt.json` to create the archive from it.
+- **`references/video-specs.md`** documents the container/codec/bitrate rules
+  that were verified against the live API in November 2026, including why
+  re-encoding a master before upload only costs quality.
+- `validate_assets.py` accepts H.264, HEVC and AV1 video, MP4/MOV/MKV/FLV
+  containers, and both 44.1 kHz and 48 kHz AAC. It still fails on a missing
+  video or audio stream, and still warns about non-30 fps sources.
+
+### Compatibility
+
+- macOS and Windows flows are unchanged.
+- The publish, validate and verify scripts remain platform-agnostic.
+
 ## [0.2.0] - 2026-10-03
 
 ### Added
